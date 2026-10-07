@@ -1,21 +1,17 @@
- const express = require("express");
+const express = require("express");
 const app = express();
 const cors = require("cors");
 const port = 3042;
 
-const secp = require("ethereum-cryptography/secp256k1");
-const { keccak256 } = require("ethereum-cryptography/keccak");
-const { utf8ToBytes, toHex } = require("ethereum-cryptography/utils");
+const { verifyMessage, getAddress } = require("ethers");
 
 app.use(cors());
 app.use(express.json());
 
+// MetaMask Ethereum addresses go here.
+// We will replace the first address with your MetaMask address next.
 const balances = {
-  "0473045614ea6da119eee46e5226c860366dd38954402add9f34cacbd5ab47f022040eef87c1b946dfbba40c3debb52e128443bb3100ac8d2cf3816cdc8f9698cf": 100,
-
-  "04e5785854272938adb4a2137441555924b3121560525118843e575e83d0fd4eb10eebb4d51c59287ec662918a695da3ef5052320c220cc8847ae886961577298d": 50,
-
-  "041d1357bd1bd31d86577395a03998e6c0c4db9975aaf628c92d00a7c7eecba394bf570655a2e17b4ebd3224c53c5edaf4875da406ed0a7a0f923134acb7fb3b3d": 75,
+  "0x77daC04B11b1Fa659B3747E2ad8517C9945e1413": 100,
 };
 
 const nonces = {};
@@ -23,20 +19,35 @@ const nonces = {};
 for (const address of Object.keys(balances)) {
   nonces[address] = 0;
 }
+
 app.get("/balance/:address", (req, res) => {
-  const { address } = req.params;
-  const balance = balances[address] || 0;
-   res.send({
-    balance,
-    nonce: nonces[address] || 0,
-  });
+  try {
+    const address = getAddress(req.params.address);
+
+    const balance = balances[address] || 0;
+
+    res.send({
+      balance,
+      nonce: nonces[address] || 0,
+    });
+  } catch (error) {
+    res.status(400).send({
+      message: "Invalid Ethereum address",
+    });
+  }
 });
 
 app.post("/send", async (req, res) => {
   try {
-    const { sender, recipient, amount, nonce, signature, recoveryBit } = req.body;
+    const {
+      sender,
+      recipient,
+      amount,
+      nonce,
+      signature,
+    } = req.body;
 
-    if (!signature || recoveryBit === undefined) {
+    if (!signature) {
       return res.status(400).send({
         message: "Missing signature",
       });
@@ -49,58 +60,55 @@ app.post("/send", async (req, res) => {
       nonce,
     });
 
-    const messageHash = keccak256(utf8ToBytes(message));
+    // Recover the Ethereum address from the exact message MetaMask signed.
+    const recoveredAddress = verifyMessage(message, signature);
 
-    const publicKey = secp.recoverPublicKey(
-      messageHash,
-      signature,
-      recoveryBit
-    );
+    const senderAddress = getAddress(sender);
+    const recipientAddress = getAddress(recipient);
 
-    const recoveredAddress = toHex(publicKey);
-
-    if (recoveredAddress !== sender) {
+    if (getAddress(recoveredAddress) !== senderAddress) {
       return res.status(401).send({
         message: "Signature does not match sender",
       });
     }
 
-    if (nonce !== nonces[sender]) {
+    if (nonce !== (nonces[senderAddress] || 0)) {
       return res.status(400).send({
         message: "Invalid nonce",
       });
     }
 
-    if (balances[sender] === undefined) {
+    if (balances[senderAddress] === undefined) {
       return res.status(400).send({
         message: "Sender account does not exist",
       });
     }
 
-    if (balances[sender] < amount) {
+    if (balances[senderAddress] < amount) {
       return res.status(400).send({
         message: "Not enough funds!",
       });
     }
 
-    if (balances[recipient] === undefined) {
-      balances[recipient] = 0;
+    if (balances[recipientAddress] === undefined) {
+      balances[recipientAddress] = 0;
+      nonces[recipientAddress] = 0;
     }
 
-    balances[sender] -= amount;
-    balances[recipient] += amount;
+    balances[senderAddress] -= amount;
+    balances[recipientAddress] += amount;
 
-    nonces[sender]++;
+    nonces[senderAddress]++;
 
-   res.send({
-      balance: balances[sender],
-      nonce: nonces[sender],
+    res.send({
+      balance: balances[senderAddress],
+      nonce: nonces[senderAddress],
     });
   } catch (error) {
     console.error(error);
 
     res.status(400).send({
-      message: "Invalid signature",
+      message: error.message || "Invalid transaction",
     });
   }
 });

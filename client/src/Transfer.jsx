@@ -1,22 +1,32 @@
 import { useState } from "react";
 import server from "./server";
 
-import { keccak256 } from "ethereum-cryptography/keccak";
-import { utf8ToBytes, toHex } from "ethereum-cryptography/utils";
-import * as secp from "ethereum-cryptography/secp256k1";
-
 function Transfer({ address, setBalance, nonce, setNonce }) {
   const [sendAmount, setSendAmount] = useState("");
   const [recipient, setRecipient] = useState("");
-  const [privateKey, setPrivateKey] = useState("");
 
   const setValue = (setter) => (evt) => setter(evt.target.value);
 
   async function transfer(evt) {
     evt.preventDefault();
 
+    if (!window.ethereum) {
+      alert("MetaMask is not installed.");
+      return;
+    }
+
+    if (!address) {
+      alert("Please connect MetaMask first.");
+      return;
+    }
+
     try {
       const amount = parseInt(sendAmount);
+
+      if (!amount || amount <= 0) {
+        alert("Please enter a valid amount.");
+        return;
+      }
 
       const message = JSON.stringify({
         sender: address,
@@ -24,15 +34,12 @@ function Transfer({ address, setBalance, nonce, setNonce }) {
         amount,
         nonce,
       });
-      const messageHash = keccak256(utf8ToBytes(message));
 
-      const [signature, recoveryBit] = await secp.sign(
-        messageHash,
-        privateKey,
-        {
-          recovered: true,
-        }
-      );
+      // Ask MetaMask to sign the transaction message.
+      const signature = await window.ethereum.request({
+        method: "personal_sign",
+        params: [message, address],
+      });
 
       const {
         data: { balance, nonce: newNonce },
@@ -41,8 +48,7 @@ function Transfer({ address, setBalance, nonce, setNonce }) {
         recipient,
         amount,
         nonce,
-        signature: toHex(signature),
-        recoveryBit,
+        signature,
       });
 
       setBalance(balance);
@@ -50,7 +56,6 @@ function Transfer({ address, setBalance, nonce, setNonce }) {
 
       setSendAmount("");
       setRecipient("");
-      setPrivateKey("");
 
       alert("Transfer successful!");
     } catch (ex) {
@@ -75,19 +80,9 @@ function Transfer({ address, setBalance, nonce, setNonce }) {
       <label>
         Recipient
         <input
-          placeholder="Public key of recipient"
+          placeholder="Recipient address"
           value={recipient}
           onChange={setValue(setRecipient)}
-        />
-      </label>
-
-      <label>
-        Private Key
-        <input
-          type="password"
-          placeholder="Enter your private key"
-          value={privateKey}
-          onChange={setValue(setPrivateKey)}
         />
       </label>
 

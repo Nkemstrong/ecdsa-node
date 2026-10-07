@@ -1,20 +1,30 @@
 import server from "./server";
 
 function Wallet({ address, setAddress, balance, setBalance, setNonce }) {
-  async function onChange(evt) {
-    const address = evt.target.value;
-    setAddress(address);
+  async function connectWallet() {
+    if (!window.ethereum) {
+      alert("MetaMask is not installed. Please install MetaMask.");
+      return;
+    }
 
-    if (address) {
+    try {
+      const accounts = await window.ethereum.request({
+        method: "eth_requestAccounts",
+      });
+
+      const walletAddress = accounts[0];
+
+      setAddress(walletAddress);
+
       const {
         data: { balance, nonce },
-      } = await server.get(`balance/${address}`);
+      } = await server.get(`balance/${walletAddress}`);
 
       setBalance(balance);
       setNonce(nonce);
-    } else {
-      setBalance(0);
-      setNonce(0);
+    } catch (error) {
+      console.error(error);
+      alert("Failed to connect MetaMask.");
     }
   }
 
@@ -22,16 +32,16 @@ function Wallet({ address, setAddress, balance, setBalance, setNonce }) {
     <div className="container wallet">
       <h1>Your Wallet</h1>
 
-      <label>
-        Wallet Address
-        <input
-          placeholder="Type an address, for example: 0x1"
-          value={address}
-          onChange={onChange}
-        />
-      </label>
+      <button type="button" className="button" onClick={connectWallet}>
+        {address ? "Wallet Connected" : "Connect MetaMask"}
+      </button>
 
-      <div className="balance">Balance: {balance}</div>
+      {address && (
+        <>
+          <div className="address">{address}</div>
+          <div className="balance">Balance: {balance}</div>
+        </>
+      )}
     </div>
   );
 }
